@@ -23,6 +23,15 @@ class AccessoriesTransformer
 
     public function transformAccessory(Accessory $accessory)
     {
+        $assignedUsersBreakdown = $this->transformAssignedUsersBreakdown($accessory);
+        $assignedUsersSummary = collect($assignedUsersBreakdown)
+            ->map(fn (array $user) => $user['name'].': '.$user['count'])
+            ->implode('; ');
+        $assignedUsersExport = collect($assignedUsersBreakdown)
+            ->prepend('User   Qty')
+            ->map(fn ($user) => is_array($user) ? $user['name'].'   '.$user['count'] : $user)
+            ->implode("\n");
+
         $array = [
             'id' => $accessory->id,
             'name' => e($accessory->name),
@@ -65,8 +74,10 @@ class AccessoriesTransformer
             'remaining_qty' => (int) ($accessory->qty - $accessory->checkouts_count), // Legacy - should phase out - replaced by below, for the bootstrap table formatter
             'remaining' => (int) ($accessory->qty - $accessory->checkouts_count),
             'checkouts_count' => $accessory->checkouts_count,
-            'assigned_users' => $this->transformAssignedUsers($accessory, false),
-            'assigned_users_html' => $this->transformAssignedUsers($accessory, true),
+            'assigned_users_count' => collect($assignedUsersBreakdown)->sum('count'),
+            'assigned_users' => $assignedUsersSummary ?: null,
+            'assigned_users_export' => $assignedUsersExport ?: null,
+            'assigned_users_breakdown' => $assignedUsersBreakdown,
             'created_by' => ($accessory->adminuser) ? [
                 'id' => (int) $accessory->adminuser->id,
                 'name' => e($accessory->adminuser->display_name),
@@ -96,29 +107,24 @@ class AccessoriesTransformer
         return $array;
     }
 
-    protected function transformAssignedUsers(Accessory $accessory, bool $withLinks = false): ?string
+    protected function transformAssignedUsersBreakdown(Accessory $accessory): array
     {
-        $assignedUsers = $accessory->checkouts
-            ->filter(fn ($checkout) => $checkout->assignedTo instanceof User)
-            ->map(fn ($checkout) => $checkout->assignedTo)
-            ->unique('id')
-            ->values();
+        return $accessory->assignedUsers
+            ->groupBy('id')
+            ->map(function ($users, $userId) {
+                /** @var User $user */
+                $user = $users->first();
 
-        if ($assignedUsers->isEmpty()) {
-            return null;
-        }
-
-        if (! $withLinks) {
-            return $assignedUsers
-                ->map(fn (User $user) => e($user->display_name))
-                ->implode(', ');
-        }
-
-        return $assignedUsers
-            ->map(function (User $user) {
-                return '<a href="'.route('users.show', $user->id).'">'.e($user->display_name).'</a>';
+                return [
+                    'id' => (int) $userId,
+                    'name' => e($user->display_name),
+                    'count' => $users->count(),
+                    'url' => route('users.show', $userId),
+                ];
             })
-            ->implode(', ');
+            ->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)
+            ->values()
+            ->all();
     }
 
     public function transformCheckedoutAccessory($accessory_checkouts, $total)

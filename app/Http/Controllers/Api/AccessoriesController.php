@@ -74,9 +74,7 @@ class AccessoriesController extends Controller
                 'location',
                 'supplier',
                 'adminuser',
-                'checkouts' => function ($query) {
-                    $query->userAssigned()->with('assignedTo');
-                },
+                'assignedUsers',
             ])
             ->withCount('checkouts as checkouts_count');
 

@@ -12,6 +12,9 @@
 
 <script nonce="{{ csrf_token() }}">
     $(function () {
+        $(document).on('click', '.fixed-table-toolbar [data-type]', function () {
+            window.snipeCurrentExportType = $(this).data('type');
+        });
 
 
         var blockedFields = "searchable,sortable,switchable,title,visible,formatter,class".split(",");
@@ -61,7 +64,7 @@
 
             data_export_options = $(this).attr('data-export-options');
             export_options = data_export_options ? JSON.parse(data_export_options) : {};
-            export_options['htmlContent'] = false; // this is already the default; but let's be explicit about it
+            export_options['htmlContent'] = (export_options['htmlContent'] !== undefined) ? export_options['htmlContent'] : false;
             export_options['jspdf'] = {
                 "orientation": "l",
                 "autotable": {
@@ -78,7 +81,21 @@
                 if (cell.is('th')) {
                     return cell.find('.th-inner').text()
                 }
-                return htmlData
+                var exportContent = cell.find('.export-content').first();
+                if (exportContent.length) {
+                    if ((window.snipeCurrentExportType === 'pdf') && (exportContent.attr('data-export-html') === 'true')) {
+                        return exportContent.html();
+                    }
+                    if (exportContent.attr('data-export-text') !== undefined) {
+                        return exportContent.attr('data-export-text');
+                    }
+                    return exportContent.is('textarea') ? exportContent.val() : exportContent.text();
+                }
+                var exportSource = cell.find('[data-export-content]').first();
+                if (exportSource.length) {
+                    return exportSource.attr('data-export-content');
+                }
+                return cell.text()
             }
 
             // This allows us to override the table defaults set below using the data-dash attributes

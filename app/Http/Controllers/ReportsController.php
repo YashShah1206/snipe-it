@@ -342,8 +342,10 @@ class ReportsController extends Controller
     public function getLicenseReport(): View
     {
         $this->authorize('reports.view');
-        $licenses = License::with('depreciation')->orderBy('created_at', 'DESC')
+        $licenses = License::with('depreciation')
             ->with('company')
+            ->with(['licenseseats.user', 'licenseseats.asset'])
+            ->orderBy('created_at', 'DESC')
             ->get();
 
         return view('reports/licenses', compact('licenses'));

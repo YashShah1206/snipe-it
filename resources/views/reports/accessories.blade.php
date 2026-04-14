@@ -44,14 +44,83 @@
             </div>
         </div>
 
+        <div class="modal fade" id="assignedUsersModal" tabindex="-1" role="dialog" aria-labelledby="assignedUsersModalLabel">
+            <div class="modal-dialog modal-md" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-label="{{ trans('button.close') }}"><span aria-hidden="true">&times;</span></button>
+                        <h4 class="modal-title" id="assignedUsersModalLabel">Assigned Users</h4>
+                    </div>
+                    <div class="modal-body">
+                        <table class="table table-striped">
+                            <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Count</th>
+                            </tr>
+                            </thead>
+                            <tbody id="assignedUsersModalBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
 
         @stop
 
         @section('moar_scripts')
             @include ('partials.bootstrap-table')
             <script nonce="{{ csrf_token() }}">
+                window.assignedUsersLookup = {};
+                window.assignedUsersAccessoryNames = {};
+
+                function escapeHtml(value) {
+                    return String(value || '')
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#039;');
+                }
+
                 function assignedUsersFormatter(value, row) {
-                    return row.assigned_users_html || value || '';
+                    var assignedCount = row.assigned_users_count || 0;
+                    var users = row.assigned_users_breakdown || [];
+                    var exportContent = users.map(function (user) {
+                        return user.name + ' ' + user.count;
+                    }).join(', ');
+                    window.assignedUsersLookup[row.id] = users;
+                    window.assignedUsersAccessoryNames[row.id] = row.name || 'Accessory';
+
+                    if (!assignedCount) {
+                        return '<span class="export-content" style="display:none;" data-export-html="true" data-export-text="0">0</span><span>0</span>';
+                    }
+
+                    var exportHtmlRows = '<div>' + escapeHtml(exportContent) + '</div>';
+
+                    return '<span class="export-content" style="display:none;" data-export-html="true" data-export-text="' + escapeHtml(exportContent) + '">' + exportHtmlRows + '</span>'
+                        + '<a href="#" onclick="return showAssignedUsersModal(' + row.id + ');">' + assignedCount + '</a>';
+                }
+
+                function showAssignedUsersModal(accessoryId) {
+                    var users = window.assignedUsersLookup[accessoryId] || [];
+                    var accessoryName = window.assignedUsersAccessoryNames[accessoryId] || 'Accessory';
+                    var rows = '';
+
+                    if (!users.length) {
+                        rows = '<tr><td colspan="2">No assigned users</td></tr>';
+                    } else {
+                        users.forEach(function (user) {
+                            rows += '<tr><td><a href="' + user.url + '">' + user.name + '</a></td><td>' + user.count + '</td></tr>';
+                        });
+                    }
+
+                    $('#assignedUsersModalLabel').text('Assigned Users - ' + accessoryName);
+                    $('#assignedUsersModalBody').html(rows);
+                    $('#assignedUsersModal').modal('show');
+
+                    return false;
                 }
             </script>
 

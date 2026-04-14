@@ -307,6 +307,20 @@ class Accessory extends SnipeModel
     }
 
     /**
+     * Establishes the accessory -> assigned users relationship.
+     *
+     * @return Relation
+     */
+    public function assignedUsers()
+    {
+        return $this->belongsToMany(User::class, 'accessories_checkout', 'accessory_id', 'assigned_to')
+            ->where('assigned_type', '=', User::class)
+            ->withPivot('id', 'created_at', 'note')
+            ->withTrashed()
+            ->orderBy('users.display_name');
+    }
+
+    /**
      * Checks whether or not the accessory has users
      *
      * @author [A. Gianotto] [<snipe@snipe.net>]
