@@ -138,8 +138,7 @@
                         </div>
                     </div>
 
-                      <strong>Snipe-IT {{ trans('general.version') }}</strong> {{ config('version.app_version') }} -
-                      {{ trans('general.build') }} {{ config('version.build_version') }} ({{ config('version.branch') }})
+
 
                   </div>
               </div>
