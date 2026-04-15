@@ -61,7 +61,10 @@ Route::group(['middleware' => 'auth'], function () {
     )->where('labelName', '.*')->name('labels.show');
 
     Route::get('/test-email', function () {
-        $mailable = new CheckoutComponentMail;
+        // This is a debug route, providing dummy arguments to fix the constructor error
+        $component = new \App\Models\Component;
+        $user = new \App\Models\User;
+        $mailable = new CheckoutComponentMail($component, $user, $user, null, 'Test Note');
 
         return $mailable->render(); // dumps HTML
     });
@@ -418,7 +421,6 @@ Route::group(['prefix' => 'account', 'middleware' => ['auth']], function () {
         ->breadcrumbs(fn (Trail $trail, $id) => $trail->parent('home')
             ->push(trans('general.profile'), route('account'))
             ->push(trans('general.accept_item'), route('account.accept.item', $id)));
-
     Route::post('accept/{id}', [Account\AcceptanceController::class, 'store'])
         ->name('account.store-acceptance');
 
@@ -481,11 +483,34 @@ Route::group(['prefix' => 'reports', 'middleware' => ['auth']], function () {
         ->breadcrumbs(fn (Trail $trail) => $trail->parent('home')
             ->push(trans('general.license_report'), route('reports/licenses')));
 
+    Route::get('licenses/export/csv', [ReportsController::class, 'exportLicenseReportCsv'])
+        ->name('reports.licenses.export.csv');
+    Route::get('licenses/export/pdf', [ReportsController::class, 'exportLicenseReportPdf'])
+        ->name('reports.licenses.export.pdf');
+
+    Route::get('users', [ReportsController::class, 'getUserReport'])
+        ->name('reports.users')
+        ->breadcrumbs(fn (Trail $trail) => $trail->parent('home')
+            ->push('User Report', route('reports.users')));
+
+    Route::get('users/export/csv', [ReportsController::class, 'exportUserReportCsv'])
+        ->name('reports.users.export.csv');
+    Route::get('users/export/pdf', [ReportsController::class, 'exportUserReportPdf'])
+        ->name('reports.users.export.pdf');
+
+    Route::get('users/{id}/{type}', [ReportsController::class, 'getUserReportDetails'])
+        ->name('reports.users.details');
+
     Route::get('export/licenses', [ReportsController::class, 'exportLicenseReport'])
         ->name('reports/export/licenses');
 
     Route::get('accessories', [ReportsController::class, 'getAccessoryReport'])
         ->name('reports/accessories');
+
+    Route::get('accessories/export/csv', [ReportsController::class, 'exportAccessoryReportCsv'])
+        ->name('reports.accessories.export.csv');
+    Route::get('accessories/export/pdf', [ReportsController::class, 'exportAccessoryReportPdf'])
+        ->name('reports.accessories.export.pdf');
 
     Route::get('export/accessories', [ReportsController::class, 'exportAccessoryReport'])
         ->name('reports/export/accessories');

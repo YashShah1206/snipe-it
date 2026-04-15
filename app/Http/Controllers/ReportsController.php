@@ -25,6 +25,7 @@ use App\Models\LicenseSeat;
 use App\Models\Maintenance;
 use App\Models\ReportTemplate;
 use App\Models\Setting;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -38,6 +39,7 @@ use League\Csv\EscapeFormula;
 use League\Csv\Reader;
 use League\Csv\Writer;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Elibyy\TCPDF\Facades\TCPDF;
 
 /**
  * This controller handles all actions related to Reports for
@@ -145,7 +147,7 @@ class ReportsController extends Controller
             ->orderBy('created_at', 'DESC')->get();
 
         $csv = Writer::createFromFileObject(new \SplTempFileObject);
-        $csv->setOutputBOM(Reader::BOM_UTF16_BE);
+        $csv->setOutputBOM(\League\Csv\ByteSequence::BOM_UTF16_BE);
 
         $rows = [];
 
@@ -167,6 +169,7 @@ class ReportsController extends Controller
 
         // Create a row per asset
         foreach ($assets as $asset) {
+            /** @var \App\Models\Asset $asset */
             $row = [];
             $row[] = e($asset->asset_tag);
             $row[] = e($asset->name);
@@ -382,6 +385,7 @@ class ReportsController extends Controller
 
         // Row per license
         foreach ($licenses as $license) {
+            /** @var \App\Models\License $license */
             $row = [];
             $row[] = e($license->name);
             $row[] = e($license->serial);
@@ -659,9 +663,10 @@ class ReportsController extends Controller
                 $header[] = trans('general.url');
             }
 
-            foreach ($customfields as $customfield) {
-                if ($request->input($customfield->db_column_name()) == '1') {
-                    $header[] = $customfield->name;
+            foreach ($customfields as $field) {
+                /** @var \App\Models\CustomField $field */
+                if ($request->filled($field->db_column_name())) {
+                    $header[] = $field->name;
                 }
             }
 
@@ -1069,10 +1074,10 @@ class ReportsController extends Controller
                         $row[] = config('app.url').'/hardware/'.$asset->id;
                     }
 
-                    foreach ($customfields as $customfield) {
-                        $column_name = $customfield->db_column_name();
-                        if ($request->filled($customfield->db_column_name())) {
-                            $row[] = $asset->$column_name;
+                    foreach ($customfields as $field) {
+                        /** @var \App\Models\CustomField $field */
+                        if ($request->filled($field->db_column_name())) {
+                            $row[] = (isset($asset->{$field->db_column_name()})) ? $asset->{$field->db_column_name()} : '';
                         }
                     }
 
@@ -1211,6 +1216,7 @@ class ReportsController extends Controller
 
         $itemsForReport = $query->get()
             ->filter(fn ($unaccepted) => $unaccepted->checkoutable)
+            /** @var \App\Models\CheckoutAcceptance $unaccepted */
             ->map(fn ($unaccepted) => Checkoutable::fromAcceptance($unaccepted));
 
         return view('reports/unaccepted_assets', compact('itemsForReport', 'showDeleted'));
@@ -1415,7 +1421,7 @@ class ReportsController extends Controller
      *
      * @version v1.0
      */
-    protected function getCheckedOutAssetsRequiringAcceptance($modelsInCategoriesThatRequireAcceptance): View
+    protected function getCheckedOutAssetsRequiringAcceptance($modelsInCategoriesThatRequireAcceptance): array
     {
         $this->authorize('reports.view');
         $assets = Asset::deployed()
@@ -1475,5 +1481,430 @@ class ReportsController extends Controller
         return $this->getCheckedOutAssetsRequiringAcceptance(
             $this->getModelsInCategoriesThatRequireAcceptance($this->getCategoriesThatRequireAcceptance())
         );
+    }
+    public function getUserReport(): View
+    {
+        $this->authorize('reports.view');
+        $users = User::withCount(['assets', 'licenses', 'accessories', 'consumables'])
+            ->orderBy('last_name', 'ASC')
+            ->orderBy('first_name', 'ASC')
+            ->get();
+
+        return view('reports/users', compact('users'));
+    }
+
+    /**
+     * Returns a JSON list of details for the user report modal.
+     *
+     * @since [v8.4.1]
+     */
+    public function getUserReportDetails(Request $request, $id, $type)
+    {
+        $this->authorize('reports.view');
+        $user = User::findOrFail($id);
+
+        $results = [];
+        switch ($type) {
+            case 'assets':
+                $items = $user->assets()->with('model', 'status')->get();
+                foreach ($items as $item) {
+                    $results[] = [
+                        'name' => $item->name,
+                        'model' => $item->model ? $item->model->name : '',
+                        'serial' => $item->serial,
+                        'asset_tag' => $item->asset_tag,
+                        'status' => $item->status ? $item->status->name : '',
+                        'checkout_date' => Helper::getFormattedDateObject($item->last_checkout, 'date', false),
+                    ];
+                }
+                break;
+            case 'licenses':
+                 // This fetches licenses via license_seats
+                $items = $user->licenses()->with('category')->get(); 
+                foreach ($items as $item) {
+                     $results[] = [
+                        'name' => $item->name,
+                        'serial' => $item->serial,
+                        'category' => $item->category ? $item->category->name : '',
+                        'checkout_date' => Helper::getFormattedDateObject($item->pivot->created_at, 'date', false),
+                    ];
+                }
+                break;
+            case 'accessories':
+                $items = $user->accessories()->with('category')->get();
+                foreach ($items as $item) {
+                    $results[] = [
+                        'name' => $item->name,
+                        'category' => $item->category ? $item->category->name : '',
+                        'checkout_date' => Helper::getFormattedDateObject($item->pivot->created_at, 'date', false),
+                    ];
+                }
+                break;
+            case 'consumables':
+                $items = $user->consumables()->with('category')->get();
+                foreach ($items as $item) {
+                    $results[] = [
+                        'name' => $item->name,
+                        'category' => $item->category ? $item->category->name : '',
+                        'checkout_date' => Helper::getFormattedDateObject($item->pivot->created_at, 'date', false),
+                    ];
+                }
+                break;
+        }
+
+        return response()->json([
+            'total' => count($results),
+            'rows' => $results,
+        ]);
+    }
+
+    /**
+     * Exports the User Report to CSV with detailed checkouts.
+     */
+    public function exportUserReportCsv()
+    {
+        $this->authorize('reports.view');
+        
+        $response = new StreamedResponse(function () {
+            $handle = fopen('php://output', 'w');
+            
+            // Header
+            fputcsv($handle, [
+                trans('admin/users/table.name'),
+                trans('general.type'),
+                trans('general.item'),
+                trans('admin/hardware/table.asset_tag'),
+                trans('admin/hardware/table.serial'),
+                trans('admin/hardware/table.checkout_date'),
+            ]);
+
+            User::with(['assets.model', 'licenses', 'accessories.category', 'consumables.category'])
+                ->chunk(100, function ($users) use ($handle) {
+                    foreach ($users as $user) {
+                        // Assets
+                        foreach ($user->assets as $asset) {
+                            fputcsv($handle, [
+                                $user->display_name,
+                                'Asset',
+                                $asset->name . ($asset->model ? ' (' . $asset->model->name . ')' : ''),
+                                $asset->asset_tag,
+                                $asset->serial,
+                                Helper::getFormattedDateObject($asset->last_checkout, 'date', false),
+                            ]);
+                        }
+                        // Licenses
+                        foreach ($user->licenses as $license) {
+                            fputcsv($handle, [
+                                $user->display_name,
+                                'License',
+                                $license->name,
+                                '',
+                                $license->serial,
+                                Helper::getFormattedDateObject($license->pivot->created_at, 'date', false),
+                            ]);
+                        }
+                        // Accessories
+                        foreach ($user->accessories as $accessory) {
+                            fputcsv($handle, [
+                                $user->display_name,
+                                'Accessory',
+                                $accessory->name,
+                                '',
+                                '',
+                                Helper::getFormattedDateObject($accessory->pivot->created_at, 'date', false),
+                            ]);
+                        }
+                        // Consumables
+                        foreach ($user->consumables as $consumable) {
+                            fputcsv($handle, [
+                                $user->display_name,
+                                'Consumable',
+                                $consumable->name,
+                                '',
+                                '',
+                                Helper::getFormattedDateObject($consumable->pivot->created_at, 'date', false),
+                            ]);
+                        }
+                    }
+                });
+
+            fclose($handle);
+        }, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="user-report-details-' . date('Y-m-d') . '.csv"',
+        ]);
+
+        return $response;
+    }
+
+    /**
+     * Exports the User Report to PDF with detailed checkouts.
+     */
+    public function exportUserReportPdf()
+    {
+        $this->authorize('reports.view');
+        
+        $users = User::with(['assets.model', 'licenses', 'accessories.category', 'consumables.category'])
+            ->whereHas('assets')
+            ->orWhereHas('licenses')
+            ->orWhereHas('accessories')
+            ->orWhereHas('consumables')
+            ->get();
+
+        $html = '<h1>' . trans('general.user_report') . ' - ' . date('Y-m-d') . '</h1>';
+        
+        foreach ($users as $user) {
+            $html .= '<h2>' . e($user->display_name) . '</h2>';
+            $html .= '<table border="1" cellpadding="4">';
+            $html .= '<tr style="background-color: #f2f2f2;">
+                        <th width="15%"><b>' . trans('general.type') . '</b></th>
+                        <th width="40%"><b>' . trans('general.item') . '</b></th>
+                        <th width="20%"><b>' . trans('admin/hardware/table.asset_tag') . ' / ' . trans('admin/hardware/table.serial') . '</b></th>
+                        <th width="25%"><b>' . trans('admin/hardware/table.checkout_date') . '</b></th>
+                      </tr>';
+            
+            $hasItems = false;
+            
+            foreach ($user->assets as $asset) {
+                $hasItems = true;
+                $html .= '<tr>
+                            <td>Asset</td>
+                            <td>' . e($asset->name) . ($asset->model ? ' (' . e($asset->model->name) . ')' : '') . '</td>
+                            <td>' . e($asset->asset_tag) . ' / ' . e($asset->serial) . '</td>
+                            <td>' . Helper::getFormattedDateObject($asset->last_checkout, 'date', false) . '</td>
+                          </tr>';
+            }
+            
+            foreach ($user->licenses as $license) {
+                $hasItems = true;
+                $html .= '<tr>
+                            <td>License</td>
+                            <td>' . e($license->name) . '</td>
+                            <td>' . e($license->serial) . '</td>
+                            <td>' . Helper::getFormattedDateObject($license->pivot->created_at, 'date', false) . '</td>
+                          </tr>';
+            }
+
+            foreach ($user->accessories as $accessory) {
+                $hasItems = true;
+                $html .= '<tr>
+                            <td>Accessory</td>
+                            <td>' . e($accessory->name) . '</td>
+                            <td></td>
+                            <td>' . Helper::getFormattedDateObject($accessory->pivot->created_at, 'date', false) . '</td>
+                          </tr>';
+            }
+
+            foreach ($user->consumables as $consumable) {
+                $hasItems = true;
+                $html .= '<tr>
+                            <td>Consumable</td>
+                            <td>' . e($consumable->name) . '</td>
+                            <td></td>
+                            <td>' . Helper::getFormattedDateObject($consumable->pivot->created_at, 'date', false) . '</td>
+                          </tr>';
+            }
+
+            if (!$hasItems) {
+                $html .= '<tr><td colspan="4">' . trans('general.no_results') . '</td></tr>';
+            }
+
+            $html .= '</table><br>';
+        }
+
+        TCPDF::SetTitle(trans('general.user_report'));
+        TCPDF::AddPage();
+        TCPDF::writeHTML($html, true, false, true, false, '');
+        
+        return TCPDF::Output('user-report-' . date('Y-m-d') . '.pdf', 'D');
+    }
+
+    /**
+     * Exports the License Report to CSV with detailed seat assignments.
+     */
+    public function exportLicenseReportCsv()
+    {
+        $this->authorize('reports.view');
+        
+        $response = new StreamedResponse(function () {
+            $handle = fopen('php://output', 'w');
+            
+            fputcsv($handle, [
+                trans('admin/licenses/table.title'),
+                trans('admin/licenses/form.license_key'),
+                'Seat',
+                trans('admin/licenses/form.assigned_to'),
+                trans('general.type'),
+                trans('general.date'),
+            ]);
+
+            License::with(['licenseseats.user', 'licenseseats.asset'])
+                ->chunk(100, function ($licenses) use ($handle) {
+                    foreach ($licenses as $license) {
+                        foreach ($license->licenseseats as $seat) {
+                            $assignedTo = '';
+                            $targetType = '';
+                            if ($seat->user) {
+                                $assignedTo = $seat->user->display_name;
+                                $targetType = 'User';
+                            } elseif ($seat->asset) {
+                                $assignedTo = $seat->asset->display_name;
+                                $targetType = 'Asset';
+                            }
+
+                            fputcsv($handle, [
+                                $license->name,
+                                $license->serial,
+                                'Seat ' . $seat->id,
+                                $assignedTo,
+                                $targetType,
+                                Helper::getFormattedDateObject($seat->created_at, 'date', false),
+                            ]);
+                        }
+                    }
+                });
+
+            fclose($handle);
+        }, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="license-report-details-' . date('Y-m-d') . '.csv"',
+        ]);
+
+        return $response;
+    }
+
+    /**
+     * Exports the License Report to PDF with detailed seat assignments.
+     */
+    public function exportLicenseReportPdf()
+    {
+        $this->authorize('reports.view');
+        
+        $licenses = License::with(['licenseseats.user', 'licenseseats.asset'])->get();
+
+        $html = '<h1>' . trans('general.license_report') . ' - ' . date('Y-m-d') . '</h1>';
+        
+        foreach ($licenses as $license) {
+            $html .= '<h2>' . e($license->name) . '</h2>';
+            $html .= '<table border="1" cellpadding="4">';
+            $html .= '<tr style="background-color: #f2f2f2;">
+                        <th width="15%"><b>Seat</b></th>
+                        <th width="35%"><b>' . trans('admin/licenses/form.assigned_to') . '</b></th>
+                        <th width="20%"><b>' . trans('general.type') . '</b></th>
+                        <th width="30%"><b>' . trans('general.date') . '</b></th>
+                      </tr>';
+            
+            $hasItems = false;
+            foreach ($license->licenseseats as $seat) {
+                if ($seat->user || $seat->asset) {
+                    $hasItems = true;
+                    $assignedTo = $seat->user ? $seat->user->display_name : ($seat->asset ? $seat->asset->display_name : '');
+                    $targetType = $seat->user ? 'User' : ($seat->asset ? 'Asset' : '');
+
+                    $html .= '<tr>
+                                <td>Seat ' . $seat->id . '</td>
+                                <td>' . e($assignedTo) . '</td>
+                                <td>' . e($targetType) . '</td>
+                                <td>' . Helper::getFormattedDateObject($seat->created_at, 'date', false) . '</td>
+                              </tr>';
+                }
+            }
+            
+            if (!$hasItems) {
+                $html .= '<tr><td colspan="4">' . trans('general.no_results') . '</td></tr>';
+            }
+
+            $html .= '</table><br>';
+        }
+
+        TCPDF::SetTitle(trans('general.license_report'));
+        TCPDF::AddPage();
+        TCPDF::writeHTML($html, true, false, true, false, '');
+        
+        return TCPDF::Output('license-report-' . date('Y-m-d') . '.pdf', 'D');
+    }
+
+    /**
+     * Exports the Accessory Report to CSV with detailed checkouts.
+     */
+    public function exportAccessoryReportCsv()
+    {
+        $this->authorize('reports.view');
+        
+        $response = new StreamedResponse(function () {
+            $handle = fopen('php://output', 'w');
+            
+            fputcsv($handle, [
+                trans('admin/accessories/table.title'),
+                trans('admin/accessories/form.assigned_to'),
+                trans('general.date'),
+                trans('general.notes'),
+            ]);
+
+            Accessory::with(['assignedUsers'])
+                ->chunk(100, function ($accessories) use ($handle) {
+                foreach ($accessories as $accessory) {
+                    foreach ($accessory->assignedUsers as $user) {
+                        fputcsv($handle, [
+                            $accessory->name,
+                            $user->display_name,
+                            Helper::getFormattedDateObject($user->pivot->created_at, 'date', false),
+                            $user->pivot->note,
+                        ]);
+                    }
+                }
+            });
+
+            fclose($handle);
+        }, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="accessory-report-details-' . date('Y-m-d') . '.csv"',
+        ]);
+
+        return $response;
+    }
+
+    /**
+     * Exports the Accessory Report to PDF with detailed checkouts.
+     */
+    public function exportAccessoryReportPdf()
+    {
+        $this->authorize('reports.view');
+        
+        $accessories = Accessory::with(['assignedUsers'])->get();
+
+        $html = '<h1>' . trans('general.accessory_report') . ' - ' . date('Y-m-d') . '</h1>';
+        
+        foreach ($accessories as $accessory) {
+            $html .= '<h2>' . e($accessory->name) . '</h2>';
+            $html .= '<table border="1" cellpadding="4">';
+            $html .= '<tr style="background-color: #f2f2f2;">
+                        <th width="40%"><b>' . trans('admin/accessories/form.assigned_to') . '</b></th>
+                        <th width="30%"><b>' . trans('general.date') . '</b></th>
+                        <th width="30%"><b>' . trans('general.notes') . '</b></th>
+                      </tr>';
+            
+            $hasItems = false;
+            foreach ($accessory->assignedUsers as $user) {
+                $hasItems = true;
+                $html .= '<tr>
+                            <td>' . e($user->display_name) . '</td>
+                            <td>' . Helper::getFormattedDateObject($user->pivot->created_at, 'date', false) . '</td>
+                            <td>' . e($user->pivot->note) . '</td>
+                          </tr>';
+            }
+            
+            if (!$hasItems) {
+                $html .= '<tr><td colspan="3">' . trans('general.no_results') . '</td></tr>';
+            }
+
+            $html .= '</table><br>';
+        }
+
+        TCPDF::SetTitle(trans('general.accessory_report'));
+        TCPDF::AddPage();
+        TCPDF::writeHTML($html, true, false, true, false, '');
+        
+        return TCPDF::Output('accessory-report-' . date('Y-m-d') . '.pdf', 'D');
     }
 }

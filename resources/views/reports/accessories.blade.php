@@ -72,6 +72,26 @@
         @section('moar_scripts')
             @include ('partials.bootstrap-table')
             <script nonce="{{ csrf_token() }}">
+                $(function() {
+                    // Function to inject custom export items into the bootstrap-table export dropdown
+                    function injectCustomExports() {
+                        var $exportDropdown = $('.export .dropdown-menu');
+                        if ($exportDropdown.length && !$('#detailed-csv-link').length) {
+                            $exportDropdown.append('<li class="divider"></li>');
+                            $exportDropdown.append('<li><a id="detailed-csv-link" href="{{ route('reports.accessories.export.csv') }}"><i class="fa fa-download"></i> Detailed CSV</a></li>');
+                            $exportDropdown.append('<li><a id="detailed-pdf-link" href="{{ route('reports.accessories.export.pdf') }}"><i class="fa fa-file-pdf-o"></i> Detailed PDF</a></li>');
+                        }
+                    }
+
+                    // Run injection after table is initialized and on every page change/re-render
+                    $('#accessoriesReport').on('post-body.bs.table', function () {
+                        injectCustomExports();
+                    });
+
+                    // Also try once immediately in case post-body already fired
+                    setTimeout(injectCustomExports, 500);
+                });
+
                 window.assignedUsersLookup = {};
                 window.assignedUsersAccessoryNames = {};
 
