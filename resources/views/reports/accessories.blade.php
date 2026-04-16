@@ -31,12 +31,12 @@
                             <tr>
                                 <th data-checkbox="true"></th>
                                 <th data-field="id" data-visible="false">ID</th>
-                                <th class="col-sm-1" data-field="company.name">{{ trans('admin/companies/table.title') }}</th>
-                                <th class="col-sm-1" data-field="name">{{ trans('admin/accessories/table.title') }}</th>
-                                <th class="col-sm-1" data-field="model_number">{{ trans('general.model_no') }}</th>
-                                <th class="col-sm-1" data-field="qty">{{ trans('admin/accessories/general.total') }}</th>
-                                <th class="col-sm-1" data-field="remaining_qty">{{ trans('admin/accessories/general.remaining') }}</th>
-                                <th class="col-sm-2" data-field="assigned_users" data-formatter="assignedUsersFormatter">Assigned Users</th>
+                                <th data-field="company.name">{{ trans('admin/companies/table.title') }}</th>
+                                <th data-field="name">{{ trans('admin/accessories/table.title') }}</th>
+                                <th data-field="model_number">{{ trans('general.model_no') }}</th>
+                                <th data-field="qty">{{ trans('admin/accessories/general.total') }}</th>
+                                <th data-field="remaining_qty">{{ trans('admin/accessories/general.remaining') }}</th>
+                                <th data-field="assigned_users" data-formatter="assignedUsersFormatter">Assigned Users</th>
                             </tr>
                             </thead>
                             <tbody>
