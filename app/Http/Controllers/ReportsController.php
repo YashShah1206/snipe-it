@@ -1561,14 +1561,53 @@ class ReportsController extends Controller
     /**
      * Exports the User Report to CSV with detailed checkouts.
      */
-    public function exportUserReportCsv()
+    public function exportUserReportCsv(Request $request)
     {
         $this->authorize('reports.view');
         
-        $response = new StreamedResponse(function () {
+        $query = User::query();
+        if ($request->filled('ids')) {
+            $query->whereIn('id', $request->input('ids'));
+        } else {
+            $query->where(function ($q) {
+                $q->whereHas('assets')
+                    ->orWhereHas('licenses')
+                    ->orWhereHas('accessories')
+                    ->orWhereHas('consumables');
+            });
+        }
+
+        // Calculate summary from the same data that will be in the report
+        $reportData = (clone $query)->withCount(['assets', 'licenses', 'accessories', 'consumables'])->get();
+
+        $summary = [
+            'users' => $reportData->count(),
+            'assets' => $reportData->sum('assets_count'),
+            'licenses' => $reportData->sum('licenses_count'),
+            'accessories' => $reportData->sum('accessories_count'),
+            'consumables' => $reportData->sum('consumables_count'),
+        ];
+
+        $response = new StreamedResponse(function () use ($summary) {
             $handle = fopen('php://output', 'w');
             
-            // Header
+            // SUMMARY SECTION
+            fputcsv($handle, ['SUMMARY']);
+            fputcsv($handle, ['USERS', 'ASSETS', 'LICENCES', 'ACCESORIES', 'CONSUMABLES']);
+            fputcsv($handle, [
+                $summary['users'],
+                $summary['assets'],
+                $summary['licenses'],
+                $summary['accessories'],
+                $summary['consumables']
+            ]);
+            fputcsv($handle, []); // Blank line
+
+            // HEADER SECTION
+            fputcsv($handle, ['USER REPORT - ' . date('Y-m-d')]);
+            fputcsv($handle, []); // Blank line
+
+            // Table Header
             fputcsv($handle, [
                 trans('admin/users/table.name'),
                 trans('general.type'),
@@ -1578,7 +1617,7 @@ class ReportsController extends Controller
                 trans('admin/hardware/table.checkout_date'),
             ]);
 
-            User::with(['assets.model', 'licenses', 'accessories.category', 'consumables.category'])
+            (clone $query)->with(['assets.model', 'licenses', 'accessories.category', 'consumables.category'])
                 ->chunk(100, function ($users) use ($handle) {
                     foreach ($users as $user) {
                         // Assets
@@ -1640,18 +1679,57 @@ class ReportsController extends Controller
     /**
      * Exports the User Report to PDF with detailed checkouts.
      */
-    public function exportUserReportPdf()
+    public function exportUserReportPdf(Request $request)
     {
         $this->authorize('reports.view');
         
-        $users = User::with(['assets.model', 'licenses', 'accessories.category', 'consumables.category'])
-            ->whereHas('assets')
-            ->orWhereHas('licenses')
-            ->orWhereHas('accessories')
-            ->orWhereHas('consumables')
+        $query = User::query();
+        if ($request->filled('ids')) {
+            $query->whereIn('id', $request->input('ids'));
+        } else {
+            $query->where(function ($q) {
+                $q->whereHas('assets')
+                    ->orWhereHas('licenses')
+                    ->orWhereHas('accessories')
+                    ->orWhereHas('consumables');
+            });
+        }
+
+        $users = (clone $query)->with(['assets.model', 'licenses', 'accessories.category', 'consumables.category'])
+            ->withCount(['assets', 'licenses', 'accessories', 'consumables'])
             ->get();
 
-        $html = '<h1>' . trans('general.user_report') . ' - ' . date('Y-m-d') . '</h1>';
+        $summary = [
+            'users' => $users->count(),
+            'assets' => $users->sum('assets_count'),
+            'licenses' => $users->sum('licenses_count'),
+            'accessories' => $users->sum('accessories_count'),
+            'consumables' => $users->sum('consumables_count'),
+        ];
+
+        // PAGE 1: SUMMARY
+        $html = '<h2 style="text-align:center;">SUMMARY</h2>';
+        $html .= '<table border="1" width="100%" cellpadding="4">';
+        $html .= '<tr style="background-color: #f2f2f2; text-align: center;">
+                    <th>USERS</th>
+                    <th>ASSETS</th>
+                    <th>LICENCES</th>
+                    <th>ACCESORIES</th>
+                    <th>CONSUMABLES</th>
+                  </tr>';
+        $html .= '<tr style="text-align: center;">
+                    <td>' . $summary['users'] . '</td>
+                    <td>' . $summary['assets'] . '</td>
+                    <td>' . $summary['licenses'] . '</td>
+                    <td>' . $summary['accessories'] . '</td>
+                    <td>' . $summary['consumables'] . '</td>
+                  </tr>';
+        $html .= '</table>';
+        
+        $html .= '<div style="page-break-after: always;"></div>';
+
+        // PAGE 2: USER REPORT
+        $html .= '<h2 style="text-align:center;">USER REPORT - ' . date('Y-m-d') . '</h2>';
         
         foreach ($users as $user) {
             $html .= '<h2>' . e($user->display_name) . '</h2>';
@@ -1722,13 +1800,21 @@ class ReportsController extends Controller
     /**
      * Exports the License Report to CSV with detailed seat assignments.
      */
-    public function exportLicenseReportCsv()
+    public function exportLicenseReportCsv(Request $request)
     {
         $this->authorize('reports.view');
         
-        $response = new StreamedResponse(function () {
+        $query = License::query();
+        if ($request->filled('ids')) {
+            $query->whereIn('id', $request->input('ids'));
+        }
+        
+        $response = new StreamedResponse(function () use ($query) {
             $handle = fopen('php://output', 'w');
             
+            fputcsv($handle, ['LICENSE REPORT - ' . date('Y-m-d')]);
+            fputcsv($handle, []);
+
             fputcsv($handle, [
                 trans('admin/licenses/table.title'),
                 trans('admin/licenses/form.license_key'),
@@ -1738,7 +1824,7 @@ class ReportsController extends Controller
                 trans('general.date'),
             ]);
 
-            License::with(['licenseseats.user', 'licenseseats.asset'])
+            (clone $query)->with(['licenseseats.user', 'licenseseats.asset'])
                 ->chunk(100, function ($licenses) use ($handle) {
                     foreach ($licenses as $license) {
                         foreach ($license->licenseseats as $seat) {
@@ -1776,13 +1862,18 @@ class ReportsController extends Controller
     /**
      * Exports the License Report to PDF with detailed seat assignments.
      */
-    public function exportLicenseReportPdf()
+    public function exportLicenseReportPdf(Request $request)
     {
         $this->authorize('reports.view');
         
-        $licenses = License::with(['licenseseats.user', 'licenseseats.asset'])->get();
+        $query = License::query();
+        if ($request->filled('ids')) {
+            $query->whereIn('id', $request->input('ids'));
+        }
 
-        $html = '<h1>' . trans('general.license_report') . ' - ' . date('Y-m-d') . '</h1>';
+        $licenses = (clone $query)->with(['licenseseats.user', 'licenseseats.asset'])->get();
+
+        $html = '<h2 style="text-align:center;">LICENSE REPORT - ' . date('Y-m-d') . '</h2>';
         
         foreach ($licenses as $license) {
             $html .= '<h2>' . e($license->name) . '</h2>';
@@ -1827,13 +1918,21 @@ class ReportsController extends Controller
     /**
      * Exports the Accessory Report to CSV with detailed checkouts.
      */
-    public function exportAccessoryReportCsv()
+    public function exportAccessoryReportCsv(Request $request)
     {
         $this->authorize('reports.view');
         
-        $response = new StreamedResponse(function () {
+        $query = Accessory::query();
+        if ($request->filled('ids')) {
+            $query->whereIn('id', $request->input('ids'));
+        }
+        
+        $response = new StreamedResponse(function () use ($query) {
             $handle = fopen('php://output', 'w');
             
+            fputcsv($handle, ['ACCESSORY REPORT - ' . date('Y-m-d')]);
+            fputcsv($handle, []);
+
             fputcsv($handle, [
                 trans('admin/accessories/table.title'),
                 trans('admin/accessories/form.assigned_to'),
@@ -1841,7 +1940,7 @@ class ReportsController extends Controller
                 trans('general.notes'),
             ]);
 
-            Accessory::with(['assignedUsers'])
+            (clone $query)->with(['assignedUsers'])
                 ->chunk(100, function ($accessories) use ($handle) {
                 foreach ($accessories as $accessory) {
                     foreach ($accessory->assignedUsers as $user) {
@@ -1867,13 +1966,18 @@ class ReportsController extends Controller
     /**
      * Exports the Accessory Report to PDF with detailed checkouts.
      */
-    public function exportAccessoryReportPdf()
+    public function exportAccessoryReportPdf(Request $request)
     {
         $this->authorize('reports.view');
         
-        $accessories = Accessory::with(['assignedUsers'])->get();
+        $query = Accessory::query();
+        if ($request->filled('ids')) {
+            $query->whereIn('id', $request->input('ids'));
+        }
 
-        $html = '<h1>' . trans('general.accessory_report') . ' - ' . date('Y-m-d') . '</h1>';
+        $accessories = (clone $query)->with(['assignedUsers'])->get();
+
+        $html = '<h2 style="text-align:center;">ACCESSORY REPORT - ' . date('Y-m-d') . '</h2>';
         
         foreach ($accessories as $accessory) {
             $html .= '<h2>' . e($accessory->name) . '</h2>';

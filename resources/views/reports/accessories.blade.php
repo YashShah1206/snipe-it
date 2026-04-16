@@ -29,6 +29,8 @@
 
                             <thead>
                             <tr>
+                                <th data-checkbox="true"></th>
+                                <th data-field="id" data-visible="false">ID</th>
                                 <th class="col-sm-1" data-field="company.name">{{ trans('admin/companies/table.title') }}</th>
                                 <th class="col-sm-1" data-field="name">{{ trans('admin/accessories/table.title') }}</th>
                                 <th class="col-sm-1" data-field="model_number">{{ trans('general.model_no') }}</th>
@@ -90,6 +92,21 @@
 
                     // Also try once immediately in case post-body already fired
                     setTimeout(injectCustomExports, 500);
+
+                    // Handle custom export click to include selected IDs
+                    $(document).on('click', '#detailed-csv-link, #detailed-pdf-link', function(e) {
+                        var selections = $('#accessoriesReport').bootstrapTable('getSelections');
+                        if (selections.length > 0) {
+                            e.preventDefault();
+                            var baseUrl = $(this).attr('href').split('?')[0];
+                            var ids = selections.map(function(row) {
+                                return row.id;
+                            });
+                            
+                            var queryParams = $.param({ ids: ids });
+                            window.location.href = baseUrl + '?' + queryParams;
+                        }
+                    });
                 });
 
                 window.assignedUsersLookup = {};

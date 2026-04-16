@@ -34,16 +34,20 @@
                         }'>
                         <thead>
                             <tr role="row">
-                                <th data-sortable="true">{{ trans('admin/users/table.name') }}</th>
-                                <th data-sortable="true">{{ trans('general.assets') }}</th>
-                                <th data-sortable="true">{{ trans('general.licenses') }}</th>
-                                <th data-sortable="true">{{ trans('general.accessories') }}</th>
-                                <th data-sortable="true">{{ trans('general.consumables') }}</th>
+                                <th data-checkbox="true"></th>
+                                <th data-field="id" data-visible="false">ID</th>
+                                <th data-field="name" data-sortable="true">{{ trans('admin/users/table.name') }}</th>
+                                <th data-field="assets" data-sortable="true">{{ trans('general.assets') }}</th>
+                                <th data-field="licenses" data-sortable="true">{{ trans('general.licenses') }}</th>
+                                <th data-field="accessories" data-sortable="true">{{ trans('general.accessories') }}</th>
+                                <th data-field="consumables" data-sortable="true">{{ trans('general.consumables') }}</th>
                             </tr>
                         </thead>
-                        <tbody>
+                         <tbody>
                             @foreach ($users as $user)
-                            <tr>
+                            <tr data-id="{{ $user->id }}">
+                                <td></td>
+                                <td>{{ $user->id }}</td>
                                 <td><a href="{{ route('users.show', $user->id) }}">{{ $user->display_name }}</a></td>
                                 <td>
                                     @if ($user->assets_count > 0)
@@ -126,6 +130,23 @@
 
         // Also try once immediately in case post-body already fired
         setTimeout(injectCustomExports, 500);
+
+        // Handle custom export click to include selected IDs
+        $(document).on('click', '#detailed-csv-link, #detailed-pdf-link', function(e) {
+            var selections = $('#usersReport').bootstrapTable('getSelections');
+            if (selections.length > 0) {
+                e.preventDefault();
+                var baseUrl = $(this).attr('href').split('?')[0];
+                var ids = selections.map(function(row) {
+                    // row.id works if data-field="id" is used
+                    return row.id;
+                });
+                
+                var queryParams = $.param({ ids: ids });
+                window.location.href = baseUrl + '?' + queryParams;
+            }
+            // If no selections, let the default link behavior (all users) happen
+        });
 
         $(document).on('click', '.view-details', function(e) {
             e.preventDefault();

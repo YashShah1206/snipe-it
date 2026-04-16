@@ -26,6 +26,8 @@
                         }'>
                         <thead>
                             <tr role="row">
+                                <th data-checkbox="true"></th>
+                                <th data-field="id" data-visible="false">ID</th>
                                 <th class="col-sm-1">{{ trans('admin/companies/table.title') }}</th>
                                 <th class="col-sm-1">{{ trans('admin/licenses/table.title') }}</th>
                                 <th class="col-sm-1">{{ trans('admin/licenses/form.license_key') }}</th>
@@ -78,7 +80,9 @@
                                 $assignedCount = $assignedBreakdown->sum('count');
                                 $assignedExport = $assignedBreakdown->map(fn ($entry) => $entry['name'].' ['.$entry['type'].'] '.$entry['count'])->implode(', ');
                             @endphp
-                            <tr>
+                            <tr data-id="{{ $license->id }}">
+                                <td></td>
+                                <td>{{ $license->id }}</td>
                                 <td>{{ is_null($license->company) ? '' : $license->company->name }}</td>
                                 <td>{{ $license->name }}</td>
                                 <td>
@@ -176,6 +180,21 @@
 
             // Also try once immediately in case post-body already fired
             setTimeout(injectCustomExports, 500);
+
+            // Handle custom export click to include selected IDs
+            $(document).on('click', '#detailed-csv-link, #detailed-pdf-link', function(e) {
+                var selections = $('#licensesReport').bootstrapTable('getSelections');
+                if (selections.length > 0) {
+                    e.preventDefault();
+                    var baseUrl = $(this).attr('href').split('?')[0];
+                    var ids = selections.map(function(row) {
+                        return row.id;
+                    });
+                    
+                    var queryParams = $.param({ ids: ids });
+                    window.location.href = baseUrl + '?' + queryParams;
+                }
+            });
         });
 
         function showLicenseAssignmentsModal(link) {
